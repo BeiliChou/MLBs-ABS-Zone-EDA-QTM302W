@@ -9,6 +9,13 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
+## Conventions
+
+with_underscores
+Variables: nouns
+Functions: verbs
+
+
 ## Data
 
 ```{r load data}

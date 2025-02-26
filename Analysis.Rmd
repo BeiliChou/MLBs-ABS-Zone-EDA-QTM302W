@@ -1,29 +1,132 @@
 ---
-title: "My Project"
-author: "Beili Chou"
+title: "Baseballr EDA"
+author: "Charlie Braverman, Beili Chou, Andrew Hack"
 date: "`r Sys.Date()`"
 output: html_document
+editor_options: 
+  markdown: 
+    wrap: 72
+bibliography: references.bib
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
+## Introduction
+
 ## Conventions
 
 with_underscores
+
 Variables: nouns
+
 Functions: verbs
+
+Automated ball-strike challenge system -\> ABS
+
+Major League Baseball -\> MLB
+
+## Packages
+
+Uncommon pkgs: @baseballr
+
+baseballr is a package written for R focused on baseball analysis. It
+includes functions for scraping various data from websites, such as
+FanGraphs.com, Baseball-Reference.com, and baseballsavant.mlb.com. It
+also includes functions for calculating metrics, such as wOBA, FIP, and
+team-level consistency over custom time frames.
+
+You can read more about some of the functions and how to use them at its
+official site, <http://billpetti.github.io/baseballr/index.html>.
+
+```{r load pkgs, warning=FALSE, message=FALSE}
+library(tidyverse)
+library(baseballr)
+```
 
 ## Data
 
-```{r load data}
-library(tidyverse)
+Statcast provides pitch-by-pitch data for every game played in MLB. Our
+approach will be to pull pitch data and join with another data set that
+holds: batter_id, batter_name, and batter_height. This full data set
+will allow for us to sort by batter produce the new rulebook strikezone
+for each.
 
-data <- read_csv("data/my_data.csv")
+```{r load data, results='hide', collapse=TRUE}
+zack_wheeler_id <- playerid_lookup(last_name = "Wheeler", first_name = "Zack") %>% pull(mlbam_id)
+zack_wheeler_data <- statcast_search_pitchers(start_date = "2024-01-01",
+                                                   end_date = "2024-12-31",
+                                                   pitcherid = zack_wheeler_id)
+write.csv(zack_wheeler_data, file = "data/wheeler_pitch_data_2024.csv")
 ```
 
-```{r}
-head(data)
+## EDA
+
+Some initial thoughts:
+
+#### Generating new strikezone sizes:
+
+```         
+Start
+
+  Mutate and create columns for bottom and top of strikezone height
+  
+    .27 x batter_height, .535 x batter_height
+    
+  Strikezone width is standard for all players
+  
+    17 inches (format consistent with provided data)
+    
+End
 ```
 
+#### Calculating strikezone differences for 2024:
+
+```         
+Start
+
+  Mutate and create % strikezone diff
+  
+    Calculate average height x width for recorded strikezone and compare % area difference to ABS strikezone.
+    
+  Mutate and create batting average on balls in zone (BABIZ) for old and new zones
+  
+    Filter for pitches located in each zone, respectively, and calculate average
+  
+  Repeat for interesting stats
+  
+    wOBA/BABIPIZ/...
+    
+  Compare players who benefit vs suffer
+  
+    Group_by, sort
+    
+End
+```
+
+#### Long-term: model player performances for 2024 if strikezone was ABS size:
+
+```         
+Start
+
+  Create distance from  strikezone metric
+  
+    ball_loc-nearest strikezone edge
+    
+  Train model on distance from strikezone edge, count, more etc
+  
+    Start with metrics like BA, can model other stats as well, ~ distance_from_zone, count, pitch velo, pitch break, etc
+    
+  Mutate predicted field to be NA for each pitch that is on the line between old and new zone
+  
+    filter for pitch location in ABS-Zone distance away from zone, make NA
+    
+  Predict outcome for those limbo-state pitches with new strike zone
+  
+  Make sure model is trained so if a batter would swing at a pitch on the edge of old zone, their habits stay true (and same if not swinging)
+  
+  Calculate difference in WAR, other key metrics for players. Who performed better? Worse?
+  
+End
+```

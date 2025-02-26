@@ -53,7 +53,10 @@ Statcast provides pitch-by-pitch data for every game played in MLB. Our
 approach will be to pull pitch data and join with another data set that
 holds: batter_id, batter_name, and batter_height. This full data set
 will allow for us to sort by batter produce the new rulebook strikezone
-for each.
+for each. 
+
+Further documentation on variable names and their meanings can be found here: https://baseballsavant.mlb.com/csv-docs
+
 
 ```{r load data, results='hide', collapse=TRUE}
 zack_wheeler_id <- playerid_lookup(last_name = "Wheeler", first_name = "Zack") %>% pull(mlbam_id)
@@ -61,6 +64,44 @@ zack_wheeler_data <- statcast_search_pitchers(start_date = "2024-01-01",
                                                    end_date = "2024-12-31",
                                                    pitcherid = zack_wheeler_id)
 write.csv(zack_wheeler_data, file = "data/wheeler_pitch_data_2024.csv")
+```
+
+Taking a look at pitch location data, which is broken down into x (horizontal) and z (vertical) coordinates:
+
+```{r descriptives}
+plate_x_bplot <- ggplot(zack_wheeler_data, aes(x = plate_x)) +
+  geom_boxplot() +
+  labs(title = "plate_x descriptive statistics", x = "Distance from center of plate (feet)")
+
+plate_z_bplt <- ggplot(zack_wheeler_data, aes(y = plate_z)) +
+  geom_boxplot() +
+  labs(title = "plate_z descriptive statistics", y = "Distance from ground (feet)")
+
+plate_x_bplot + geom_vline(aes(xintercept = mean(plate_x), color = "mean"), linetype = "dashed")
+
+plate_z_bplt + geom_hline(aes(yintercept = mean(plate_z), color = "mean"), linetype = "dashed")
+
+summary(zack_wheeler_data$plate_x)
+
+summary(zack_wheeler_data$plate_z)
+```
+
+And taking a look at how much the strikezone varies across the year:
+
+```{r strikezone descriptive}
+sz_top_bplot <- ggplot(zack_wheeler_data, aes(y = sz_top)) +
+  geom_boxplot() +
+  labs(title = "sz_top descriptive statistics", y = "Distance from ground (feet)")
+
+sz_bot_bplt <- ggplot(zack_wheeler_data, aes(y = sz_bot)) +
+  geom_boxplot() +
+  labs(title = "sz_bot descriptive statistics", y = "Distance from ground (feet)")
+
+sz_top_bplot + geom_hline(aes(yintercept = mean(sz_top), color = "mean"), linetype = "dashed")
+
+sz_bot_bplt + geom_hline(aes(yintercept = mean(sz_bot), color = "mean"), linetype = "dashed")
+summary(zack_wheeler_data$sz_top)
+summary(zack_wheeler_data$sz_bot)
 ```
 
 ## EDA

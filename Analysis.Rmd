@@ -86,7 +86,7 @@ summary(zack_wheeler_data$plate_x)
 summary(zack_wheeler_data$plate_z)
 ```
 
-And taking a look at how much the strikezone varies across the year:
+And taking a look at how much the strikezone varies across different batters/game operators:
 
 ```{r strikezone descriptive}
 sz_top_bplot <- ggplot(zack_wheeler_data, aes(y = sz_top)) +

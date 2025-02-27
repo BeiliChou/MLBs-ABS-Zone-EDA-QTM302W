@@ -1,5 +1,5 @@
 ---
-title: "Baseballr EDA"
+title: "ABS Strike Zone Comparison EDA"
 author: "Charlie Braverman, Beili Chou, Andrew Hack"
 date: "`r Sys.Date()`"
 output: html_document
@@ -15,7 +15,7 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ## Introduction
 
-
+Insert introduction here.
 
 ## Conventions
 
@@ -52,77 +52,133 @@ library(baseballr)
 Statcast provides pitch-by-pitch data for every game played in MLB. Our
 approach will be to pull pitch data and join with another data set that
 holds: batter_id, batter_name, and batter_height. This full data set
-will allow for us to sort by batter produce the new rulebook strikezone
+will allow for us to sort by batter produce the new rulebook strike zone
 for each. 
 
 Further documentation on variable names and their meanings can be found here: https://baseballsavant.mlb.com/csv-docs
 
+Biofile data is obtained from https://www.retrosheet.org/biofile.htm, specifically the biofile0 since it contains heights in inches.
 
-```{r load data, results='hide', collapse=TRUE}
-zack_wheeler_id <- playerid_lookup(last_name = "Wheeler", first_name = "Zack") %>% pull(mlbam_id)
-zack_wheeler_data <- statcast_search_pitchers(start_date = "2024-01-01",
-                                                   end_date = "2024-12-31",
-                                                   pitcherid = zack_wheeler_id)
-write.csv(zack_wheeler_data, file = "data/wheeler_pitch_data_2024.csv")
+The output data frame from this chunk will include all 113 variables from the Statcast data, as well as the batter's height in inches, strike zone top/bottom converted to inches, and the new ABS zone top/bottom in inches for each batter based on their height.
+
+One assumption that must be made is that batting stance will not affect the strike zone. This is a simplification that will be made for the sake of this analysis. In the future, maybe Statcast data will be used to record batting stance height, and this assumption can be revisited.
+
+This chunk should take about 2-3 minutes to run.
+
+```{r load data, results='hide', collapse=TRUE, echo=FALSE, warning = FALSE, message = FALSE}
+# tracking time for optimizing code efficiency
+t <- Sys.time()
+
+# scrape data from Statcast and write to csv
+full_pitch_df <- scrape_statcast_savant_pitcher_all(start_date = "2024-01-01", end_date = "2024-12-31")
+write_csv(full_pitch_df, "data/full_pitch_df.csv")
+
+# scrape data from Statcast on batters to build height data
+batter_mlbamid_df <- scrape_statcast_savant_batter_all(start_date = "2024-01-01", end_date = "2024-12-31") %>% 
+  select(batter, player_name)
+
+# loop that adds key_retro to batter_mlbamid_df by using function playername_lookup() on each row, inputting that row's "batter" column as the argument, and selecting only key_retro to add to the data set
+batter_mlbamid_df$key_retro <- NA
+
+player_id_key_df <- chadwick_player_lu()
+
+player_id_key_df <- player_id_key_df %>% select(key_mlbam, key_retro) %>% filter(!is.na(key_mlbam))
+
+for (i in 1:nrow(batter_mlbamid_df)) {
+  batter_mlbamid_df$key_retro[i] <- player_id_key_df %>% filter(key_mlbam == batter_mlbamid_df$batter[i]) %>% select(key_retro)
+}
+
+# turn list of key_retro into character
+batter_mlbamid_df$key_retro <- as.character(batter_mlbamid_df$key_retro)
+
+# read in biofile data and join with batter_mlbamid_df to get batter height
+biofile_df <- read_csv("data/biofile_df.csv") %>% select(id, height)
+
+batter_height_df <- batter_mlbamid_df %>% full_join(biofile_df, by = c("key_retro" = "id")) %>% select(batter, player_name, height) %>% distinct()
+
+# join full_pitch_df with batter_height_df to get batter height in pitch data
+full_pitch_df <- full_pitch_df %>% left_join(batter_height_df, by = c("batter" = "batter")) %>% rename(batter_height = height, batter_name = player_name.y, pitcher_name = player_name.x)
+
+# changing sz_bot and top and plate_x/z to inches
+full_pitch_df$sz_bot <- full_pitch_df$sz_bot * 12
+full_pitch_df$sz_top <- full_pitch_df$sz_top * 12
+
+full_pitch_df$plate_x <- full_pitch_df$plate_x * 12
+full_pitch_df$plate_z <- full_pitch_df$plate_z * 12
+
+# calculate new strike zone top and bottom based on batter height
+full_pitch_df <- full_pitch_df %>% mutate(abs_sz_bot = .27 * batter_height, abs_sz_top = .535 * batter_height)
+
+# calculate sz height and abs sz height
+full_pitch_df <- full_pitch_df %>% mutate(sz_height = sz_top - sz_bot, abs_sz_height = abs_sz_top - abs_sz_bot)
+
+# end time tracking
+Sys.time()-t
 ```
 
 Taking a look at pitch location data, which is broken down into x (horizontal) and z (vertical) coordinates:
 
-```{r descriptives}
-plate_x_bplot <- ggplot(zack_wheeler_data, aes(x = plate_x)) +
+```{r pitch loc descriptives}
+# boxplots for plate_x and plate_z
+plate_x_bplot <- ggplot(full_pitch_df, aes(x = plate_x)) +
   geom_boxplot() +
-  labs(title = "plate_x descriptive statistics", x = "Distance from center of plate (feet)")
+  labs(title = "plate_x descriptive statistics", x = "Distance from center of plate (inches)")
 
-plate_z_bplt <- ggplot(zack_wheeler_data, aes(y = plate_z)) +
+plate_z_bplot <- ggplot(full_pitch_df, aes(y = plate_z)) +
   geom_boxplot() +
-  labs(title = "plate_z descriptive statistics", y = "Distance from ground (feet)")
+  labs(title = "plate_z descriptive statistics", y = "Distance from ground (inches)")
 
 plate_x_bplot + geom_vline(aes(xintercept = mean(plate_x), color = "mean"), linetype = "dashed")
 
-plate_z_bplt + geom_hline(aes(yintercept = mean(plate_z), color = "mean"), linetype = "dashed")
+plate_z_bplot + geom_hline(aes(yintercept = mean(plate_z), color = "mean"), linetype = "dashed")
 
-summary(zack_wheeler_data$plate_x)
+# summary statistics for plate_x and plate_z
+summary(full_pitch_df$plate_x)
 
-summary(zack_wheeler_data$plate_z)
+summary(full_pitch_df$plate_z)
 ```
 
-And taking a look at how much the strikezone varies across different batters/game operators:
+And taking a look at how much the strike zone varies across different batters:
 
-```{r strikezone descriptive}
-sz_top_bplot <- ggplot(zack_wheeler_data, aes(y = sz_top)) +
+```{r strike zone descriptive}
+# boxplots for sz_top and sz_bot
+sz_top_bplot <- ggplot(full_pitch_df, aes(y = sz_top)) +
   geom_boxplot() +
-  labs(title = "sz_top descriptive statistics", y = "Distance from ground (feet)")
+  labs(title = "sz_top descriptive statistics", y = "Distance from ground (inches)")
 
-sz_bot_bplt <- ggplot(zack_wheeler_data, aes(y = sz_bot)) +
+sz_bot_bplot <- ggplot(full_pitch_df, aes(y = sz_bot)) +
   geom_boxplot() +
-  labs(title = "sz_bot descriptive statistics", y = "Distance from ground (feet)")
+  labs(title = "sz_bot descriptive statistics", y = "Distance from ground (inches)")
 
 sz_top_bplot + geom_hline(aes(yintercept = mean(sz_top), color = "mean"), linetype = "dashed")
 
-sz_bot_bplt + geom_hline(aes(yintercept = mean(sz_bot), color = "mean"), linetype = "dashed")
-summary(zack_wheeler_data$sz_top)
-summary(zack_wheeler_data$sz_bot)
+sz_bot_bplot + geom_hline(aes(yintercept = mean(sz_bot), color = "mean"), linetype = "dashed")
+
+# summary statistics for sz_top and sz_bot
+summary(full_pitch_df$sz_top)
+summary(full_pitch_df$sz_bot)
 ```
 
 ## EDA
 
 Some initial thoughts:
 
-#### Generating new strikezone sizes:
+How does player height currently relate to strike zone bot/top?
 
-```         
-Start
+#### Exploring strikezone sizes:
 
-  Mutate and create columns for bottom and top of strikezone height
-  
-    .27 x batter_height, .535 x batter_height
-    
-  Strikezone width is standard for all players
-  
-    17 inches (format consistent with provided data)
-    
-End
+```{r new strikezone}
+# group by batter height and calculate average strike zone top and bottom
+full_pitch_df %>% group_by(batter_height) %>% summarise(avg_abs_sz_top = mean(abs_sz_top), avg_abs_sz_bot = mean(abs_sz_bot), avg_sz_top = mean(sz_top), avg_sz_bot = mean(sz_bot))
+
+# graph of sz height vs batter_height, with the new strike zone height as a reference line
+sz_height_vs_height <- ggplot(full_pitch_df, aes(x = batter_height, y = sz_height)) +
+  geom_point() + geom_smooth(method = "gam") + geom_line(aes(x = batter_height, y = abs_sz_height), linetype = "dashed") +
+  labs(title = "Height vs. Strikezone Height", x = "Batter height (inches)", y = "Strikezone height (inches)")
+
+sz_height_vs_height
 ```
+The new ABS zone is proportional to batter height, so it acts linearly. One takeaway is that batting stance can explain the deviation in strike zone height for each batter. However, an interesting note is that the ABS strike zone height is significantly smaller than the average current strike zone height at each batter height. Batting stance should theoretically cause current strike zone height to be smaller than ABS strike zone height, but this is not the case. Is the codification of the strike zone going to be a massive change for batters?
 
 #### Calculating strikezone differences for 2024:
 

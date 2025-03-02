@@ -65,10 +65,9 @@ The output data frame from this chunk will include all 113 variables from the St
 
 One assumption that must be made is that batting stance will not affect the strike zone. This is a simplification that will be made for the sake of this analysis. In the future, maybe Statcast data will be used to record batting stance height, and this assumption can be revisited.
 
-This chunk should take about 2-3 minutes to run.
-
 ```{r load data, results='hide', collapse=TRUE, echo=FALSE, warning = FALSE, message = FALSE}
 # tracking time for optimizing code efficiency
+# This chunk should take about 2-3 minutes to run.
 t <- Sys.time()
 
 # scrape data from Statcast and write to csv
@@ -121,18 +120,30 @@ Sys.time()-t
 Taking a look at pitch location data, which is broken down into x (horizontal) and z (vertical) coordinates:
 
 ```{r pitch loc descriptives}
-# boxplots for plate_x and plate_z
-plate_x_bplot <- ggplot(full_pitch_df, aes(x = plate_x)) +
-  geom_boxplot() +
-  labs(title = "plate_x descriptive statistics", x = "Distance from center of plate (inches)")
 
-plate_z_bplot <- ggplot(full_pitch_df, aes(y = plate_z)) +
-  geom_boxplot() +
-  labs(title = "plate_z descriptive statistics", y = "Distance from ground (inches)")
+# scatterplot showing plate_x and plate_z, with the strike zone overlaid, and alpha to show density, with the rectangle just an outline
+# Calculate average sz_top and sz_bot
+avg_top <- mean(full_pitch_df$sz_top, na.rm = TRUE)
+avg_bot <- mean(full_pitch_df$sz_bot, na.rm = TRUE)
 
-plate_x_bplot + geom_vline(aes(xintercept = mean(plate_x), color = "mean"), linetype = "dashed")
+pitch_loc_plot <- ggplot(full_pitch_df, aes(x = plate_x, y = plate_z)) +
+  # Use stat_density2d to compute 2D density; fill is mapped to ..level..
+  stat_density2d(
+    aes(fill = after_stat(level)),
+    geom = "polygon",
+    alpha = 0.5
+  ) +
+  # Rename the legend label for fill
+  scale_fill_continuous(name = "Density") +  geom_rect(
+    xmin = -8.5, xmax = 8.5,
+    ymin = avg_bot, ymax = avg_top,
+    fill = NA, color = "red",
+    inherit.aes = FALSE
+  ) +
+  coord_fixed()
 
-plate_z_bplot + geom_hline(aes(yintercept = mean(plate_z), color = "mean"), linetype = "dashed")
+
+pitch_loc_plot
 
 # summary statistics for plate_x and plate_z
 summary(full_pitch_df$plate_x)
@@ -143,19 +154,12 @@ summary(full_pitch_df$plate_z)
 And taking a look at how much the strike zone varies across different batters:
 
 ```{r strike zone descriptive}
-# boxplots for sz_top and sz_bot
-sz_top_bplot <- ggplot(full_pitch_df, aes(y = sz_top)) +
-  geom_boxplot() +
-  labs(title = "sz_top descriptive statistics", y = "Distance from ground (inches)")
+# plot with overlay of average strikezone for every batter height
+sz_height_plot <- ggplot(full_pitch_df, aes(x = batter_height, y = sz_height)) +
+  geom_point() + geom_smooth(method = "gam") +
+  labs(title = "Height vs. Strikezone Height", x = "Batter height (inches)", y = "Strikezone height (inches)")
 
-sz_bot_bplot <- ggplot(full_pitch_df, aes(y = sz_bot)) +
-  geom_boxplot() +
-  labs(title = "sz_bot descriptive statistics", y = "Distance from ground (inches)")
-
-sz_top_bplot + geom_hline(aes(yintercept = mean(sz_top), color = "mean"), linetype = "dashed")
-
-sz_bot_bplot + geom_hline(aes(yintercept = mean(sz_bot), color = "mean"), linetype = "dashed")
-
+sz_height_plot
 # summary statistics for sz_top and sz_bot
 summary(full_pitch_df$sz_top)
 summary(full_pitch_df$sz_bot)
@@ -205,6 +209,36 @@ Start
     
 End
 ```
+
+```{r strikezone diff}
+# calculate strike zone area for current and ABS strike zones
+full_pitch_df <- full_pitch_df %>% mutate(sz_area = sz_height * 17, abs_sz_area = abs_sz_height * 17)
+
+# calculate % difference in strike zone area
+full_pitch_df <- full_pitch_df %>% mutate(sz_diff = (sz_area - abs_sz_area) / sz_area)
+
+# calculate BABIZ for current and ABS strike zones
+full_pitch_df <- full_pitch_df %>% mutate(in_zone = ifelse(plate_z > sz_bot & plate_z < sz_top & plate_x > -8.5 & plate_x < 8.5, 1, 0))
+
+sz_babiz <- full_pitch_df %>% filter(in_zone == 1) %>% group_by(batter_name) %>% summarise(babiz = mean(ifelse(events == "Single" | events == "Double" | events == "Triple" | events == "Home Run", 1, 0)))
+
+abs_sz_babiz <- full_pitch_df %>% filter(in_zone == 1) %>% group_by(batter_name) %>% summarise(babiz = mean(ifelse(events == "Single" | events == "Double" | events == "Triple" | events == "Home Run", 1, 0)))
+
+# calculate BABIP for current and ABS strike zones
+
+sz_babip <- full_pitch_df %>% filter(in_zone == 1) %>% group_by(batter_name) %>% summarise(babip = mean(ifelse(events != "Strikeout" & events != "Walk" & events != "Hit By Pitch", 1, 0)))
+
+abs_sz_babip <- full_pitch_df %>% filter(in_zone == 1) %>% group_by(batter_name) %>% summarise(babip = mean(ifelse(events != "Strikeout" & events != "Walk" & events != "Hit By Pitch", 1, 0)))
+
+# looking at difference in babiz and babip for current and ABS strike zones
+
+babiz_diff <- sz_babiz %>% full_join(abs_sz_babiz, by = "batter_name") %>% mutate(babiz_diff = babiz.x - babiz.y)
+
+babip_diff <- sz_babip %>% full_join(abs_sz_babip, by = "batter_name") %>% mutate(babip_diff = babip.x - babip.y)
+
+babiz_diff
+```
+
 
 #### Long-term: model player performances for 2024 if strikezone was ABS size:
 

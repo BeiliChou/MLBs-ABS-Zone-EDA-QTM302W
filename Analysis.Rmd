@@ -31,9 +31,9 @@ Automated ball-strike challenge system -\> ABS
 
 Major League Baseball -\> MLB
 
-## Packages
+## Packages & Functions
 
-Uncommon pkgs: baseballr @baseballr
+Uncommon Packages: baseballr @baseballr
 
 baseballr is a package written for R focused on baseball analysis. It
 includes functions for scraping various data from websites, such as
@@ -44,11 +44,58 @@ team-level consistency over custom time frames.
 You can read more about some of the functions and how to use them at its
 official site, <http://billpetti.github.io/baseballr/index.html>.
 
+Sourced Functions: scrape_statcast() https://jacobrichey.github.io/2020-06-06-Build-a-Statcast-Database-in-R/
+
+The scrape_statcast() function is a custom function that scrapes pitch-by-pitch data from Statcast for a given season. It takes a season as an argument and returns a data frame with all the pitch-by-pitch data for that season. The function uses the baseballr package to scrape the data from baseballsavant.mlb.com. This is necessary since baseballr scraping functions only return up to 25000 rows of data, and we need to scrape all the data for a season.
+
 ```{r load pkgs, warning=FALSE, message=FALSE}
 library(tidyverse)
 library(baseballr)
 ```
 
+
+```{r load functions, warning=FALSE, message=FALSE}
+# scrape data from Statcast and write to csv
+scrape_statcast <- function(season) {
+  
+  # create weeks of dates for season from mar - nov
+  # includes spring training + postseason
+  dates <- seq.Date(as.Date(paste0(season, '-03-01')),
+                    as.Date(paste0(season, '-12-01')), by = 'week')
+  
+  date_grid <- tibble(start_date = dates, 
+                      end_date = dates + 6)
+  
+  # create 'safe' version of scrape_statcast_savant in case week doesn't process
+  safe_savant <- safely(scrape_statcast_savant)
+  
+  # loop over each row of date_grid, and collect each week in a df
+  payload <- map(.x = seq_along(date_grid$start_date), 
+                 ~{message(paste0('\nScraping week of ', date_grid$start_date[.x], '...\n'))
+                   
+                   payload <- safe_savant(start_date = date_grid$start_date[.x], 
+                                          end_date = date_grid$end_date[.x], type = 'pitcher')
+                   
+                   return(payload)
+                 })
+  
+  payload_df <- map(payload, 'result')
+  
+  # eliminate results with an empty dataframe
+  number_rows <- map_df(.x = seq_along(payload_df), 
+                        ~{number_rows <- tibble(week = .x, 
+                                                number_rows = length(payload_df[[.x]]$game_date))}) %>%
+    filter(number_rows > 0) %>%
+    pull(week)
+  
+  payload_df_reduced <- payload_df[number_rows]
+  
+  combined <- payload_df_reduced %>%
+    bind_rows()
+  
+  return(combined)
+}
+```
 ## Data
 
 Statcast provides pitch-by-pitch data for every game played in MLB. Our
@@ -67,15 +114,15 @@ One assumption that must be made is that batting stance will not affect the stri
 
 ```{r load data, results='hide', collapse=TRUE, echo=FALSE, warning = FALSE, message = FALSE}
 # tracking time for optimizing code efficiency
-# This chunk should take about 2-3 minutes to run.
+# If scraping a season, this chunk should take about 25-30 minutes to run (oof).
 t <- Sys.time()
 
-# scrape data from Statcast and write to csv
-full_pitch_df <- scrape_statcast_savant_pitcher_all(start_date = "2024-01-01", end_date = "2024-12-31")
-write_csv(full_pitch_df, "data/full_pitch_df.csv")
+# scrape data from Statcast for 2024 season (Only run if data is not present in data file, or if you need to download another season.)
+full_pitch_df <- scrape_statcast(season = 2024)
+write.csv(full_pitch_df, "data/full_pitch_df.csv")
 
 # scrape data from Statcast on batters to build height data
-batter_mlbamid_df <- scrape_statcast_savant_batter_all(start_date = "2024-01-01", end_date = "2024-12-31") %>% 
+batter_mlbamid_df <- scrape_statcast_savant_batter_all(start_date = "2024-01-01", end_date = "2024-09-29") %>% 
   select(batter, player_name)
 
 # loop that adds key_retro to batter_mlbamid_df by using function playername_lookup() on each row, inputting that row's "batter" column as the argument, and selecting only key_retro to add to the data set
@@ -121,7 +168,7 @@ Taking a look at pitch location data, which is broken down into x (horizontal) a
 
 ```{r pitch loc descriptives}
 
-# scatterplot showing plate_x and plate_z, with the strike zone overlaid, and alpha to show density, with the rectangle just an outline
+# density plot showing plate_x and plate_z, with the strike zone overlaid, and alpha to show density, with the rectangle just an outline
 # Calculate average sz_top and sz_bot
 avg_top <- mean(full_pitch_df$sz_top, na.rm = TRUE)
 avg_bot <- mean(full_pitch_df$sz_bot, na.rm = TRUE)
@@ -140,7 +187,8 @@ pitch_loc_plot <- ggplot(full_pitch_df, aes(x = plate_x, y = plate_z)) +
     fill = NA, color = "red",
     inherit.aes = FALSE
   ) +
-  coord_fixed()
+  coord_fixed() +
+  labs(title = "Pitch Location Density", x = "Horizontal location (inches)", y = "Vertical location (inches)")
 
 
 pitch_loc_plot
@@ -151,7 +199,7 @@ summary(full_pitch_df$plate_x)
 summary(full_pitch_df$plate_z)
 ```
 
-And taking a look at how much the strike zone varies across different batters:
+And taking a look at how much the strike zone height varies across different batters:
 
 ```{r strike zone descriptive}
 # plot with overlay of average strikezone for every batter height
@@ -175,7 +223,7 @@ How does player height currently relate to strike zone bot/top?
 
 ```{r new strikezone}
 # group by batter height and calculate average strike zone top and bottom
-full_pitch_df %>% group_by(batter_height) %>% summarise(avg_abs_sz_top = mean(abs_sz_top), avg_abs_sz_bot = mean(abs_sz_bot), avg_sz_top = mean(sz_top), avg_sz_bot = mean(sz_bot))
+full_pitch_df %>% group_by(batter_height) %>% summarise(avg_abs_sz_top = mean(abs_sz_top), avg_abs_sz_bot = mean(abs_sz_bot), avg_sz_top = mean(sz_top), avg_sz_bot = mean(sz_bot), avg_sz_height_diff = mean(sz_height)-mean(abs_sz_height))
 
 # graph of sz height vs batter_height, with the new strike zone height as a reference line
 sz_height_vs_height <- ggplot(full_pitch_df, aes(x = batter_height, y = sz_height)) +
@@ -185,6 +233,80 @@ sz_height_vs_height <- ggplot(full_pitch_df, aes(x = batter_height, y = sz_heigh
 sz_height_vs_height
 ```
 The new ABS zone is proportional to batter height, so it acts linearly. One takeaway is that batting stance can explain the deviation in strike zone height for each batter. However, an interesting note is that the ABS strike zone height is significantly smaller than the average current strike zone height at each batter height. Batting stance should theoretically cause current strike zone height to be smaller than ABS strike zone height, but this is not the case. Is the codification of the strike zone going to be a massive change for batters?
+
+Not all batters and pitchers will be affected equally by the new strike zone. Some batters may benefit from the new strike zone, while others may suffer. We can calculate the difference in strike zone area between the current and ABS strike zones to see how much each batter's strike zone will change. We can also calculate the batting average on balls in zone (BABIZ) for each batter in the current and ABS strike zones to see how their performance might change. Obviously, players may change their approach to hitting based on the new strike zone, but this will give us a starting point to see who might benefit or suffer the most. 
+
+#### Players of Interest
+
+Some players are notorious for their height, such as Aaron Judge and Jose Altuve. We can look at how their strike zones will change and how their performance might be affected.
+
+```{r player of interest}
+# calculate strike zone area for current and ABS strike zones for all players
+full_pitch_df <- full_pitch_df %>% mutate(sz_area = sz_height * 17, abs_sz_area = abs_sz_height * 17)
+
+# create global variables for average abs strike zone top and bottom for Judge and Altuve
+judge_avg_abs_top <- full_pitch_df %>% filter(batter_name=="Judge, Aaron") %>% summarise(avg_abs_top = mean(abs_sz_top))
+judge_avg_abs_bot <- full_pitch_df %>% filter(batter_name=="Judge, Aaron") %>% summarise(avg_abs_bot = mean(abs_sz_bot))
+
+altuve_avg_abs_top <- full_pitch_df %>% filter(batter_name=="Altuve, Jose") %>% summarise(avg_abs_top = mean(abs_sz_top))
+altuve_avg_abs_bot <- full_pitch_df %>% filter(batter_name=="Altuve, Jose") %>% summarise(avg_abs_bot = mean(abs_sz_bot))
+
+# graph density of pitch locations for Judge and Altuve with overlaid abs strike zone and regular strike zone
+
+judge_pitch_loc_plot <- ggplot(full_pitch_df %>% filter(batter_name=="Judge, Aaron"), aes(x = plate_x, y = plate_z)) +
+  stat_density2d(
+    aes(fill = after_stat(level)),
+    geom = "polygon",
+    alpha = 0.5
+  ) +
+  scale_fill_continuous(name = "Density") +  geom_rect(
+    xmin = -8.5, xmax = 8.5,
+    ymin = judge_avg_abs_bot$avg_abs_bot, ymax = judge_avg_abs_top$avg_abs_top,
+    fill = NA, color = "red",
+    inherit.aes = FALSE
+  ) +
+  coord_fixed() +
+  labs(title = "Aaron Judge Pitch Location Density, ABS Strike Zone Overlay", x = "Horizontal location (inches)", y = "Vertical location (inches)")
+
+altuve_pitch_loc_plot <- ggplot(full_pitch_df %>% filter(batter_name=="Altuve, Jose"), aes(x = plate_x, y = plate_z)) +
+  stat_density2d(
+    aes(fill = after_stat(level)),
+    geom = "polygon",
+    alpha = 0.5
+  ) +
+  scale_fill_continuous(name = "Density") +  geom_rect(
+    xmin = -8.5, xmax = 8.5,
+    ymin = altuve_avg_abs_bot$avg_abs_bot, ymax = altuve_avg_abs_top$avg_abs_top,
+    fill = NA, color = "red",
+    inherit.aes = FALSE
+  ) +
+  coord_fixed() +
+  labs(title = "Jose Altuve Pitch Location Density, ABS Strike Zone Overlay", x = "Horizontal location (inches)", y = "Vertical location (inches)")
+
+judge_pitch_loc_plot
+altuve_pitch_loc_plot
+```
+It seems like Judge may have seen more pitches outside of the abs strike zone than Altuve (higher density ring sticking outside abs zone). What proportion of pitches in the old strike zone will now be outside of the new strike zone for each player?
+
+```{r player of interest 3}
+# Add column "old_sz_biz" and "abs_sz_biz" to full_pitch_df
+full_pitch_df <- full_pitch_df %>% mutate(old_sz_biz = ifelse(plate_z > sz_bot & plate_z < sz_top & plate_x > -8.5 & plate_x < 8.5, 1, 0), abs_sz_biz = ifelse(plate_z > abs_sz_bot & plate_z < abs_sz_top & plate_x > -8.5 & plate_x < 8.5, 1, 0))
+
+ # What happened with those pitches?
+full_pitch_df %>% filter(batter_name=="Judge, Aaron" & old_sz_biz == 1 & abs_sz_biz == 0) %>% nrow()
+
+full_pitch_df %>% filter(batter_name=="Altuve, Jose" & old_sz_biz == 1 & abs_sz_biz == 0) %>% nrow()
+```
+So 118 pitches that were in Judge's old strike zone are now outside of the new strike zone, while only 74 pitches that were in Altuve's old strike zone are now outside of the new strike zone. What happened on those pitches?
+
+```{r player of interest 4}
+full_pitch_df %>% filter(batter_name=="Judge, Aaron" & old_sz_biz == 1 & abs_sz_biz == 0) %>% group_by(description)
+
+full_pitch_df %>% filter(batter_name=="Altuve, Jose" & old_sz_biz == 1 & abs_sz_biz == 0) %>% nrow()
+```
+
+
+## Research Objectives:
 
 #### Calculating strikezone differences for 2024:
 
@@ -208,35 +330,6 @@ Start
     Group_by, sort
     
 End
-```
-
-```{r strikezone diff}
-# calculate strike zone area for current and ABS strike zones
-full_pitch_df <- full_pitch_df %>% mutate(sz_area = sz_height * 17, abs_sz_area = abs_sz_height * 17)
-
-# calculate % difference in strike zone area
-full_pitch_df <- full_pitch_df %>% mutate(sz_diff = (sz_area - abs_sz_area) / sz_area)
-
-# calculate BABIZ for current and ABS strike zones
-full_pitch_df <- full_pitch_df %>% mutate(in_zone = ifelse(plate_z > sz_bot & plate_z < sz_top & plate_x > -8.5 & plate_x < 8.5, 1, 0))
-
-sz_babiz <- full_pitch_df %>% filter(in_zone == 1) %>% group_by(batter_name) %>% summarise(babiz = mean(ifelse(events == "Single" | events == "Double" | events == "Triple" | events == "Home Run", 1, 0)))
-
-abs_sz_babiz <- full_pitch_df %>% filter(in_zone == 1) %>% group_by(batter_name) %>% summarise(babiz = mean(ifelse(events == "Single" | events == "Double" | events == "Triple" | events == "Home Run", 1, 0)))
-
-# calculate BABIP for current and ABS strike zones
-
-sz_babip <- full_pitch_df %>% filter(in_zone == 1) %>% group_by(batter_name) %>% summarise(babip = mean(ifelse(events != "Strikeout" & events != "Walk" & events != "Hit By Pitch", 1, 0)))
-
-abs_sz_babip <- full_pitch_df %>% filter(in_zone == 1) %>% group_by(batter_name) %>% summarise(babip = mean(ifelse(events != "Strikeout" & events != "Walk" & events != "Hit By Pitch", 1, 0)))
-
-# looking at difference in babiz and babip for current and ABS strike zones
-
-babiz_diff <- sz_babiz %>% full_join(abs_sz_babiz, by = "batter_name") %>% mutate(babiz_diff = babiz.x - babiz.y)
-
-babip_diff <- sz_babip %>% full_join(abs_sz_babip, by = "batter_name") %>% mutate(babip_diff = babip.x - babip.y)
-
-babiz_diff
 ```
 
 

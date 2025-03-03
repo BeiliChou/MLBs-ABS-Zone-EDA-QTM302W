@@ -13,7 +13,7 @@ bibliography: references.bib
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-## Introduction Andrew Test
+## Introduction
 
 Major League Baseball continues embracing technology by implementing an automated ball-strike (ABS) challenge system in spring training this year. While it will not be used in 2025, this system could be implemented in real games as soon as next year.. With a robotic strike zone, the league has changed its definition of the strike zone’s height to be 27% to 53.5% of a batter’s height. This marks a departure from the old rule from the midpoint between the shoulders and the top of the uniform pants to the top of the knees. While the 2025 season’s strike zone may be less impacted because human umpires will still be responsible for calling balls and strikes, the new strike zone may impact different players to different degrees. A key question for players, managers, and MLB front offices arises: which players stand to benefit from this change, and who might suffer?
 
@@ -108,7 +108,7 @@ Further documentation on variable names and their meanings can be found here: ht
 
 Biofile data is obtained from https://www.retrosheet.org/biofile.htm, specifically the biofile0 since it contains heights in inches.
 
-The output data frame from this chunk will include all 113 variables from the Statcast data, as well as the batter's height in inches, strike zone top/bottom converted to inches, and the new ABS zone top/bottom in inches for each batter based on their height.
+The output data frame from this chunk will include all 113 variables from the Statcast data, as well as the batter's height in inches, strike zone top/bottom converted to inches, and the new ABS zone top/bottom in inches for each batter based on their height (Only the first 100,000 rows will be used in the CSV due to size limitations, full_pitch_df object will be complete in environment).
 
 One assumption that must be made is that batting stance will not affect the strike zone. This is a simplification that will be made for the sake of this analysis. In the future, maybe Statcast data will be used to record batting stance height, and this assumption can be revisited.
 
@@ -119,7 +119,9 @@ t <- Sys.time()
 
 # scrape data from Statcast for 2024 season (Only run if data is not present in data file, or if you need to download another season.)
 full_pitch_df <- scrape_statcast(season = 2024)
-write.csv(full_pitch_df, "data/full_pitch_df.csv")
+# grab first 100,000 rows for sample data
+sample_df_for_csv <- full_pitch_df[1:100000,]
+write.csv(sample_df_for_csv, "data/full_pitch_df.csv")
 
 # scrape data from Statcast on batters to build height data
 batter_mlbamid_df <- scrape_statcast_savant_batter_all(start_date = "2024-01-01", end_date = "2024-09-29") %>% 
@@ -293,19 +295,20 @@ It seems like Judge may have seen more pitches outside of the abs strike zone th
 full_pitch_df <- full_pitch_df %>% mutate(old_sz_biz = ifelse(plate_z > sz_bot & plate_z < sz_top & plate_x > -8.5 & plate_x < 8.5, 1, 0), abs_sz_biz = ifelse(plate_z > abs_sz_bot & plate_z < abs_sz_top & plate_x > -8.5 & plate_x < 8.5, 1, 0))
 
  # What happened with those pitches?
-full_pitch_df %>% filter(batter_name=="Judge, Aaron" & old_sz_biz == 1 & abs_sz_biz == 0) %>% nrow()
-
+full_pitch_df %>% filter(batter_name=="Judge, Aaron" & old_sz_biz == 1 & abs_sz_biz == 0) %>% nrow() 
 full_pitch_df %>% filter(batter_name=="Altuve, Jose" & old_sz_biz == 1 & abs_sz_biz == 0) %>% nrow()
 ```
+
 So 118 pitches that were in Judge's old strike zone are now outside of the new strike zone, while only 74 pitches that were in Altuve's old strike zone are now outside of the new strike zone. What happened on those pitches?
 
 ```{r player of interest 4}
-full_pitch_df %>% filter(batter_name=="Judge, Aaron" & old_sz_biz == 1 & abs_sz_biz == 0) %>% group_by(description)
+full_pitch_df %>% filter(batter_name=="Judge, Aaron" & old_sz_biz == 1 & abs_sz_biz == 0) %>% group_by(description) %>% summarise(Outcome = n()) %>% arrange(desc(n))
 
-full_pitch_df %>% filter(batter_name=="Altuve, Jose" & old_sz_biz == 1 & abs_sz_biz == 0) %>% nrow()
+full_pitch_df %>% filter(batter_name=="Altuve, Jose" & old_sz_biz == 1 & abs_sz_biz == 0) %>% group_by(description) %>% summarise(Outcome = n()) %>% arrange(desc(n))
 ```
 
 
+Andrew/Charlie formalize below, reach out w questions
 ## Research Objectives:
 
 #### Calculating strikezone differences for 2024:
@@ -323,7 +326,7 @@ Start
   
   Repeat for interesting stats
   
-    wOBA/BABIPIZ/...
+    wOBA/BABIPIZ (Batting Average on Balls in play pitched in the zone/...
     
   Compare players who benefit vs suffer
   

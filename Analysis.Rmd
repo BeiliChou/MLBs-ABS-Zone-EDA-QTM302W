@@ -13,7 +13,7 @@ bibliography: references.bib
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-## Introduction Charlie Test
+## Introduction Andrew Test
 
 Major League Baseball continues embracing technology by implementing an automated ball-strike (ABS) challenge system in spring training this year. While it will not be used in 2025, this system could be implemented in real games as soon as next year.. With a robotic strike zone, the league has changed its definition of the strike zone’s height to be 27% to 53.5% of a batter’s height. This marks a departure from the old rule from the midpoint between the shoulders and the top of the uniform pants to the top of the knees. While the 2025 season’s strike zone may be less impacted because human umpires will still be responsible for calling balls and strikes, the new strike zone may impact different players to different degrees. A key question for players, managers, and MLB front offices arises: which players stand to benefit from this change, and who might suffer?
 

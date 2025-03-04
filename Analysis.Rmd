@@ -311,6 +311,8 @@ full_pitch_df %>% filter(batter_name=="Altuve, Jose" & old_sz_biz == 1 & abs_sz_
 Andrew/Charlie formalize below, reach out w questions
 ## Research Objectives:
 
+### Who will benefit the most? Who will suffer the most?
+
 #### Calculating strikezone differences for 2024:
 
 ```         

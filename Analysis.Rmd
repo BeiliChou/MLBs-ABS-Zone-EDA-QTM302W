@@ -118,36 +118,38 @@ One assumption that must be made is that batting stance will not affect the stri
 t <- Sys.time()
 
 # scrape data from Statcast for 2024 season (Only run if data is not present in data file, or if you need to download another season.)
-full_pitch_df <- scrape_statcast(season = 2024)
+#full_pitch_df <- scrape_statcast(season = 2024)
 # grab first 100,000 rows for sample data
-sample_df_for_csv <- full_pitch_df[1:100000,]
-write.csv(sample_df_for_csv, "data/full_pitch_df.csv")
+#sample_df_for_csv <- full_pitch_df[1:100000,]
+#write.csv(sample_df_for_csv, "data/full_pitch_df.csv")
 
-# scrape data from Statcast on batters to build height data
-batter_mlbamid_df <- scrape_statcast_savant_batter_all(start_date = "2024-01-01", end_date = "2024-09-29") %>% 
-  select(batter, player_name)
+# using sample data for working with the data, full_pitch_df will be used for the final analysis.
+full_pitch_df <- read_csv("data/full_pitch_df.csv")
 
-# loop that adds key_retro to batter_mlbamid_df by using function playername_lookup() on each row, inputting that row's "batter" column as the argument, and selecting only key_retro to add to the data set
-batter_mlbamid_df$key_retro <- NA
+# loop that adds key_retro to full_pitch_df by using function playername_lookup() on each row, inputting that row's "batter" column as the argument, and selecting only key_retro to add to the data set
+full_pitch_df$key_retro <- NA
+full_pitch_df$batter_name <- NA
 
 player_id_key_df <- chadwick_player_lu()
 
-player_id_key_df <- player_id_key_df %>% select(key_mlbam, key_retro) %>% filter(!is.na(key_mlbam))
+player_id_key_df <- player_id_key_df %>% select(key_mlbam, key_retro, name_last, name_first) %>% filter(!is.na(key_mlbam))
 
-for (i in 1:nrow(batter_mlbamid_df)) {
-  batter_mlbamid_df$key_retro[i] <- player_id_key_df %>% filter(key_mlbam == batter_mlbamid_df$batter[i]) %>% select(key_retro)
+for (i in 1:10) {
+  full_pitch_df$key_retro[i] <- player_id_key_df %>% filter(key_mlbam == full_pitch_df$batter[i]) %>% select(key_retro)
+  full_pitch_df$batter_name[i] <- player_id_key_df %>% filter(key_mlbam == full_pitch_df$batter[i]) %>% select(name_last, name_first) %>% paste(collapse = ", ")
 }
 
-# turn list of key_retro into character
-batter_mlbamid_df$key_retro <- as.character(batter_mlbamid_df$key_retro)
 
-# read in biofile data and join with batter_mlbamid_df to get batter height
+# turn list of key_retro into character
+full_pitch_df$key_retro <- as.character(full_pitch_df$key_retro)
+
+# read in biofile data and join with full_pitch_df to get batter height
 biofile_df <- read_csv("data/biofile_df.csv") %>% select(id, height)
 
-batter_height_df <- batter_mlbamid_df %>% full_join(biofile_df, by = c("key_retro" = "id")) %>% select(batter, player_name, height) %>% distinct()
+batter_height_df <- full_pitch_df %>% full_join(biofile_df, by = c("key_retro" = "id")) %>% select(batter, batter_name, height) %>% distinct()
 
 # join full_pitch_df with batter_height_df to get batter height in pitch data
-full_pitch_df <- full_pitch_df %>% left_join(batter_height_df, by = c("batter" = "batter")) %>% rename(batter_height = height, batter_name = player_name.y, pitcher_name = player_name.x)
+full_pitch_df <- full_pitch_df %>% left_join(batter_height_df, by = c("batter" = "batter")) %>% rename(batter_height = height)
 
 # changing sz_bot and top and plate_x/z to inches
 full_pitch_df$sz_bot <- full_pitch_df$sz_bot * 12

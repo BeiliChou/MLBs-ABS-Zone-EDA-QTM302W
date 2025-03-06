@@ -60,21 +60,21 @@ scrape_statcast <- function(season) {
   
   # create weeks of dates for season from mar - nov
   # includes spring training + postseason
-  dates <- seq.Date(as.Date(paste0(season, '-03-01')),
-                    as.Date(paste0(season, '-12-01')), by = 'week')
+  dates <- seq.Date(as.Date(paste0(season, '-03-25')),
+                    as.Date(paste0(season, '-05-15')), by = 'week')
   
   date_grid <- tibble(start_date = dates, 
                       end_date = dates + 6)
   
   # create 'safe' version of scrape_statcast_savant in case week doesn't process
-  safe_savant <- safely(scrape_statcast_savant)
+  safe_savant <- safely(scrape_statcast_savant_pitcher_all)
   
   # loop over each row of date_grid, and collect each week in a df
   payload <- map(.x = seq_along(date_grid$start_date), 
                  ~{message(paste0('\nScraping week of ', date_grid$start_date[.x], '...\n'))
                    
                    payload <- safe_savant(start_date = date_grid$start_date[.x], 
-                                          end_date = date_grid$end_date[.x], type = 'pitcher')
+                                          end_date = date_grid$end_date[.x])
                    
                    return(payload)
                  })
@@ -113,15 +113,16 @@ The output data frame from this chunk will include all 113 variables from the St
 One assumption that must be made is that batting stance will not affect the strike zone. This is a simplification that will be made for the sake of this analysis. In the future, maybe Statcast data will be used to record batting stance height, and this assumption can be revisited.
 
 ```{r load data, results='hide', collapse=TRUE, echo=FALSE, warning = FALSE, message = FALSE}
+# ONLY RUN THIS IF SCRAPING A FULL SEASON AND NOT JUST USING SAMPLE DATA
 # tracking time for optimizing code efficiency
 # If scraping a season, this chunk should take about 25-30 minutes to run (oof).
-t <- Sys.time()
+#t <- Sys.time()
 
 # scrape data from Statcast for 2024 season (Only run if data is not present in data file, or if you need to download another season.)
-#full_pitch_df <- scrape_statcast(season = 2024)
-# grab first 100,000 rows for sample data
-#sample_df_for_csv <- full_pitch_df[1:100000,]
-#write.csv(sample_df_for_csv, "data/full_pitch_df.csv")
+full_pitch_df <- scrape_statcast(season = 2024)
+# grab first 50,000 rows for sample data
+sample_df_for_csv <- full_pitch_df[100000:150000,]
+write.csv(sample_df_for_csv, "data/full_pitch_df.csv")
 
 # using sample data for working with the data, full_pitch_df will be used for the final analysis.
 full_pitch_df <- read_csv("data/full_pitch_df.csv")
@@ -134,7 +135,7 @@ player_id_key_df <- chadwick_player_lu()
 
 player_id_key_df <- player_id_key_df %>% select(key_mlbam, key_retro, name_last, name_first) %>% filter(!is.na(key_mlbam))
 
-for (i in 1:10) {
+for (i in 1:nrow(full_pitch_df)) {
   full_pitch_df$key_retro[i] <- player_id_key_df %>% filter(key_mlbam == full_pitch_df$batter[i]) %>% select(key_retro)
   full_pitch_df$batter_name[i] <- player_id_key_df %>% filter(key_mlbam == full_pitch_df$batter[i]) %>% select(name_last, name_first) %>% paste(collapse = ", ")
 }
@@ -146,7 +147,7 @@ full_pitch_df$key_retro <- as.character(full_pitch_df$key_retro)
 # read in biofile data and join with full_pitch_df to get batter height
 biofile_df <- read_csv("data/biofile_df.csv") %>% select(id, height)
 
-batter_height_df <- full_pitch_df %>% full_join(biofile_df, by = c("key_retro" = "id")) %>% select(batter, batter_name, height) %>% distinct()
+batter_height_df <- full_pitch_df %>% full_join(biofile_df, by = c("key_retro" = "id")) %>% select(batter, height) %>% distinct()
 
 # join full_pitch_df with batter_height_df to get batter height in pitch data
 full_pitch_df <- full_pitch_df %>% left_join(batter_height_df, by = c("batter" = "batter")) %>% rename(batter_height = height)
@@ -165,7 +166,7 @@ full_pitch_df <- full_pitch_df %>% mutate(abs_sz_bot = .27 * batter_height, abs_
 full_pitch_df <- full_pitch_df %>% mutate(sz_height = sz_top - sz_bot, abs_sz_height = abs_sz_top - abs_sz_bot)
 
 # end time tracking
-Sys.time()-t
+#Sys.time()-t
 ```
 
 Taking a look at pitch location data, which is broken down into x (horizontal) and z (vertical) coordinates:

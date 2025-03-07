@@ -63,7 +63,7 @@ library(baseballr)
 scrape_statcast <- function(season) {
   
   # create weeks of dates for season from mar - nov
-  # includes spring training + postseason
+  # includes spring training + postseason if running from 01-01 to 12-31
   dates <- seq.Date(as.Date(paste0(season, '-03-25')),
                     as.Date(paste0(season, '-11-15')), by = 'week')
   
@@ -349,7 +349,7 @@ full_pitch_df %>% filter(batter_name=="Altuve, José" & old_sz_biz == 1 & abs_sz
 
 full_pitch_df %>% filter(batter_name=="Altuve, José" & old_sz_biz == 1 & abs_sz_biz == 0 & description == "hit_into_play") %>% group_by(events) %>% summarise(Outcome = n()) %>% arrange(desc(Outcome))
 ```
-So, for Judge, the most common outcome of pitches that were in his old strike zone but are now outside of the new strike zone is a foul ball. For Altuve, the most common outcome is a batted ball. On pitches put in play that meet the above criteria, Judge was a worse hitter than Altuve (.214AVG vs .296AVG, respectively). With the change in strike zone, Judge would have to swing less at pitches that are now outside of the new strike zone, while Altuve *could* swing at those pitches if he hits them well, but then the change would be less impactful for him. 
+So, for Judge, the most common outcome of pitches that were in his old strike zone but are now outside of the new strike zone is a foul ball, followed by swinging strikes. For Altuve, the most common outcome is a batted ball. On pitches put in play that meet the above criteria, Judge was a worse hitter than Altuve (.214AVG vs .296AVG on batted balls, respectively). With the change in strike zone, Judge would have to swing less at pitches that are now outside of the new strike zone, while Altuve *could* swing at those pitches if he hits them well, but then the change would be less impactful for him. 
 
 Which teams had the best and worst [wOBA](https://www.lookoutlanding.com/2017/3/7/14783982/an-idiots-guide-to-advanced-statistics-woba-and-wrc-sabermetrics) on pitches in the old strike zone that would not be in the new strike zone?
 
@@ -371,7 +371,7 @@ One question raised during this period of EDA was "how will the change in strike
 
 The more fine grained questions about specific players' mechanics is too narrow a scope for the general body of stakeholders. However, the question of "who will benefit the most?" and "who will suffer the most?" is a good starting point for further research. 
 
-The next steps will be to determine which metrics and interpretations of our EDA will be most useful for answering these questions. This will be done through a "research conversation" with the sabermetrics community. Reading similar analyses, such as those done by Fangraphs, Baseball Prospectus, and other baseball analytics websites, will be helpful in determining the best approach to answering these questions.
+The next steps will be to determine which metrics and interpretations of our EDA will be most useful for answering these questions. This will be done through a "research conversation" with the Sabermetrics community. Reading similar analyses, such as those done by Fangraphs, Baseball Prospectus, and other baseball analytics websites, will be helpful in determining the best approach to answering these questions.
 
 Below is some pseudocode for possible deliverables for this project:
 

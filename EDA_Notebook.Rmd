@@ -194,7 +194,7 @@ Sys.time()-t
 
 ### Overview of Data
 
-Taking a look at pitch location data, which is broken down into x (horizontal) and z (vertical) coordinates:
+Taking a look at pitch location data, which is broken down into x (horizontal) and z (vertical) coordinates from the catcher's POV:
 
 ```{r pitch loc descriptives, warning=FALSE}
 
@@ -357,11 +357,19 @@ full_pitch_df %>% filter(old_sz_biz == 1 & abs_sz_biz == 0 & description == "hit
 ```
 Interpretation of above could be: teams that have the highest wOBA on pitches that are now outside of the new strike zone (COL, MIL, PIT, ATL, PHI) are going to see less benefit from the new strike zone. Teams that have the lowest wOBA on pitches that are now outside of the new strike zone (LAD, CHC, CWS, TB, MIN) are going to see more benefit from the new strike zone.
 
-Andrew/Charlie formalize below, reach out w questions
 
 ## Research Objectives:
 
 ### Who will benefit the most? Who will suffer the most?
+
+One question raised during this period of EDA was "how will the change in strike zone size affect players?" This broad question lends itself to a myriad of further investigation. To focus on identifying important questions to research, we brainstormed who the stakeholders in such a project would be. Players who could benefit from the change in strike zone size would be the most interested in the results of this analysis. Players who could suffer from the change in strike zone size would also be interested in the results. Managers and front offices would be interested in the results to determine how to adjust their strategies for the upcoming season. Fans would be interested in the results to see how their favorite players might be affected by the change in strike zone size.
+
+The more fine grained questions about specific players' mechanics is too narrow a scope for the general body of stakeholders. However, the question of "who will benefit the most?" and "who will suffer the most?" is a good starting point for further research. 
+
+The next steps will be to determine which metrics and interpretations of our EDA will be most useful for answering these questions. This will be done through a "research conversation" with the sabermetrics community. Reading similar analyses, such as those done by Fangraphs, Baseball Prospectus, and other baseball analytics websites, will be helpful in determining the best approach to answering these questions.
+
+Below is some pseudocode for possible deliverables for this project:
+
 
 #### Calculating strikezone differences for 2024:
 

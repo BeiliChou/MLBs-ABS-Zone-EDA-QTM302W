@@ -358,6 +358,7 @@ full_pitch_df %>% filter(old_sz_biz == 1 & abs_sz_biz == 0 & description == "hit
 Interpretation of above could be: teams that have the highest wOBA on pitches that are now outside of the new strike zone (COL, MIL, PIT, ATL, PHI) are going to see less benefit from the new strike zone. Teams that have the lowest wOBA on pitches that are now outside of the new strike zone (LAD, CHC, CWS, TB, MIN) are going to see more benefit from the new strike zone.
 
 Andrew/Charlie formalize below, reach out w questions
+
 ## Research Objectives:
 
 ### Who will benefit the most? Who will suffer the most?

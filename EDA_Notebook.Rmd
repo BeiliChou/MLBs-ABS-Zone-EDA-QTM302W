@@ -250,7 +250,9 @@ How does the new strike zone compare to the old?
 
 ```{r new strikezone, warning=FALSE}
 # group by batter height and calculate average strike zone top and bottom
-full_pitch_df %>% group_by(batter_height) %>% summarise(avg_abs_sz_top = mean(abs_sz_top), avg_abs_sz_bot = mean(abs_sz_bot), avg_sz_top = mean(sz_top), avg_sz_bot = mean(sz_bot), avg_sz_height_diff = mean(sz_height)-mean(abs_sz_height))
+sz_height_df <- full_pitch_df %>% group_by(batter_height) %>% summarise(avg_abs_sz_top = mean(abs_sz_top), avg_abs_sz_bot = mean(abs_sz_bot), avg_sz_top = mean(sz_top), avg_sz_bot = mean(sz_bot), avg_sz_height_diff = mean(sz_height)-mean(abs_sz_height))
+
+knitr::kable(sz_height_df)
 
 # graph of sz height vs batter_height, with the new strike zone height as a reference line
 sz_height_vs_height <- ggplot(full_pitch_df, aes(x = batter_height, y = sz_height)) +
@@ -353,8 +355,11 @@ Which teams had the best and worst [wOBA](https://www.lookoutlanding.com/2017/3/
 
 ```{r team of interest}
 # filter for pitches in old strike zone but not in new strike zone, group by team, and calculate batting average
-full_pitch_df %>% filter(old_sz_biz == 1 & abs_sz_biz == 0 & description == "hit_into_play" & estimated_woba_using_speedangle!="NA") %>% group_by(batting_team) %>% summarise(team_est_wOBA = mean(estimated_woba_using_speedangle), n=n()) %>% arrange(desc(team_est_wOBA))
+team_wOBA_df <- full_pitch_df %>% filter(old_sz_biz == 1 & abs_sz_biz == 0 & description == "hit_into_play" & estimated_woba_using_speedangle!="NA") %>% group_by(batting_team) %>% summarise(team_est_wOBA = mean(estimated_woba_using_speedangle), n=n()) %>% arrange(desc(team_est_wOBA))
+
+knitr::kable(team_wOBA_df)
 ```
+
 Interpretation of above could be: teams that have the highest wOBA on pitches that are now outside of the new strike zone (COL, MIL, PIT, ATL, PHI) are going to see less benefit from the new strike zone. Teams that have the lowest wOBA on pitches that are now outside of the new strike zone (LAD, CHC, CWS, TB, MIN) are going to see more benefit from the new strike zone.
 
 

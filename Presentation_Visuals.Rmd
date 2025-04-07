@@ -1,0 +1,761 @@
+---
+title: "Presentation_Visuals"
+output: html_document
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Conventions
+
+with_underscores
+
+Variables: nouns
+
+Functions: verbs
+
+Automated ball-strike challenge system -\> ABS
+
+Major League Baseball -\> MLB
+
+Weighted On-Base Average -\> wOBA
+
+## Packages & Functions
+
+Uncommon Packages: baseballr @baseballr
+
+baseballr is a package written for R focused on baseball analysis. It
+includes functions for scraping various data from websites, such as
+FanGraphs.com, Baseball-Reference.com, and baseballsavant.mlb.com. It
+also includes functions for calculating metrics, such as wOBA, FIP, and
+team-level consistency over custom time frames.
+
+You can read more about some of the functions and how to use them at its
+official site, <http://billpetti.github.io/baseballr/index.html>.
+
+Sourced Functions: scrape_statcast() https://jacobrichey.github.io/2020-06-06-Build-a-Statcast-Database-in-R/
+
+The scrape_statcast() function is a custom function that scrapes pitch-by-pitch data from Statcast for a given season. It takes a season as an argument and returns a data frame with all the pitch-by-pitch data for that season. The function uses the baseballr package to scrape the data from baseballsavant.mlb.com. This is necessary since baseballr scraping functions only return up to 25000 rows of data, and we need to scrape all the data for a season.
+
+```{r load pkgs, warning=FALSE, message=FALSE}
+library(tidyverse)
+library(baseballr)
+library(kableExtra)
+```
+
+
+```{r load functions, warning=FALSE, message=FALSE}
+# scrape data from Statcast and write to csv
+scrape_statcast <- function(season) {
+  
+  # create weeks of dates for season from mar - nov
+  # includes spring training + postseason if running from 01-01 to 12-31
+  dates <- seq.Date(as.Date(paste0(season, '-03-25')),
+                    as.Date(paste0(season, '-11-15')), by = 'week')
+  
+  date_grid <- tibble(start_date = dates, 
+                      end_date = dates + 6)
+  
+  # create 'safe' version of scrape_statcast_savant in case week doesn't process
+  safe_savant <- safely(scrape_statcast_savant_pitcher_all)
+  
+  # loop over each row of date_grid, and collect each week in a df
+  payload <- map(.x = seq_along(date_grid$start_date), 
+                 ~{message(paste0('\nScraping week of ', date_grid$start_date[.x], '...\n'))
+                   
+                   payload <- safe_savant(start_date = date_grid$start_date[.x], 
+                                          end_date = date_grid$end_date[.x])
+                   
+                   return(payload)
+                 })
+  
+  payload_df <- map(payload, 'result')
+  
+  # eliminate results with an empty dataframe
+  number_rows <- map_df(.x = seq_along(payload_df), 
+                        ~{number_rows <- tibble(week = .x, 
+                                                number_rows = length(payload_df[[.x]]$game_date))}) %>%
+    filter(number_rows > 0) %>%
+    pull(week)
+  
+  payload_df_reduced <- payload_df[number_rows]
+  
+  combined <- payload_df_reduced %>%
+    bind_rows()
+  
+  return(combined)
+}
+```
+## Data
+
+Statcast provides pitch-by-pitch data for every game played in MLB. Our
+approach will be to pull pitch data and join with another data set that
+holds: batter_id, batter_name, and batter_height. This full data set
+will allow for us to sort by batter produce the new rulebook strike zone
+for each. 
+
+Further documentation on variable names and their meanings can be found here: https://baseballsavant.mlb.com/csv-docs
+
+Biofile data is obtained from https://www.retrosheet.org/biofile.htm, specifically the biofile0 since it contains heights in inches.
+
+The output data frame will include all 113 variables from the Statcast data, as well as the batter's height in inches, strike zone top/bottom converted to inches, and the new ABS zone top/bottom in inches for each batter based on their height (Only the first 100,000 rows will be used in the CSV in GitHub due to size limitations, full_pitch_df object will be complete in environment).
+
+One assumption that must be made is that batting stance will not affect the strike zone. This is a simplification that will be made for the sake of this analysis. In the future, maybe Statcast data will be used to record batting stance height, and this assumption can be revisited.
+
+```{r load data, results='hide', collapse=TRUE, echo=TRUE, warning = FALSE, message = FALSE}
+# ONLY RUN THIS IF SCRAPING A FULL SEASON AND NOT JUST USING SAMPLE DATA
+# tracking time for optimizing code efficiency
+# If scraping a season, this chunk should take about 25-30 minutes to run (oof).
+t <- Sys.time()
+
+# scrape data from Statcast for 2024 season (Only run if data is not present in data file, or if you need to download another season.)
+full_pitch_df <- scrape_statcast(season = 2024)
+
+
+player_id_key_df <- chadwick_player_lu()
+
+player_id_key_df <- player_id_key_df %>% select(key_mlbam, key_retro, name_last, name_first) %>% filter(!is.na(key_mlbam))
+
+# Perform a join on "batter" in full_pitch_df and "key_mlbam" in player_id_key_df
+full_pitch_df <- full_pitch_df %>%
+  left_join(player_id_key_df, by = c("batter" = "key_mlbam")) %>%
+  # Create the combined name field
+  mutate(
+    batter_name = paste(name_last, name_first, sep = ", "),
+   key_retro   = key_retro
+  )
+
+
+
+# turn list of key_retro into character
+full_pitch_df$key_retro <- as.character(full_pitch_df$key_retro)
+
+# read in biofile data and join with full_pitch_df to get batter height
+biofile_df <- read_csv("data/biofile_df.csv") %>% select(id, height)
+
+batter_height_df <- full_pitch_df %>% full_join(biofile_df, by = c("key_retro" = "id")) %>% select(batter, height) %>% distinct()
+
+# join full_pitch_df with batter_height_df to get batter height in pitch data
+full_pitch_df <- full_pitch_df %>% left_join(batter_height_df, by = c("batter" = "batter")) %>% rename(batter_height = height)
+
+# remove rows with NA sz_top and sz_bot
+full_pitch_df <- full_pitch_df %>% filter(sz_top!="NA", sz_bot!="NA")
+
+# changing sz_bot and top and plate_x/z to inches
+full_pitch_df$sz_bot <- full_pitch_df$sz_bot * 12
+full_pitch_df$sz_top <- full_pitch_df$sz_top * 12
+
+full_pitch_df$plate_x <- full_pitch_df$plate_x * 12
+full_pitch_df$plate_z <- full_pitch_df$plate_z * 12
+
+# calculate new strike zone top and bottom based on batter height
+full_pitch_df <- full_pitch_df %>% mutate(abs_sz_bot = .27 * batter_height, abs_sz_top = .535 * batter_height)
+
+# calculate sz height and abs sz height
+full_pitch_df <- full_pitch_df %>% mutate(sz_height = sz_top - sz_bot, abs_sz_height = abs_sz_top - abs_sz_bot)
+
+# calculate strike zone area for current and ABS strike zones for all players
+full_pitch_df <- full_pitch_df %>% mutate(sz_area = sz_height * 17, abs_sz_area = abs_sz_height * 17)
+
+# Add column "old_sz_biz" and "abs_sz_biz" to full_pitch_df
+full_pitch_df <- full_pitch_df %>% mutate(old_sz_biz = ifelse(plate_z > sz_bot & plate_z < sz_top & plate_x > -8.5 & plate_x < 8.5, 1, 0), abs_sz_biz = ifelse(plate_z > abs_sz_bot & plate_z < abs_sz_top & plate_x > -8.5 & plate_x < 8.5, 1, 0))
+
+# create column "batting_team" that if inning_topbot == "Top", then away_team, else home_team
+full_pitch_df <- full_pitch_df %>% mutate(batting_team = ifelse(inning_topbot == "Top", away_team, home_team))
+
+# grab first 50,000 rows for sample data
+sample_df_for_csv <- full_pitch_df[100000:150000,]
+write.csv(sample_df_for_csv, "data/full_pitch_df.csv")
+
+# using sample data for working with the data, full_pitch_df will be used for the final analysis.
+#full_pitch_df <- read_csv("data/full_pitch_df.csv")
+
+# Calculate average sz_top and sz_bot
+avg_top <- mean(full_pitch_df$sz_top)
+avg_bot <- mean(full_pitch_df$sz_bot)
+
+# end time tracking
+Sys.time()-t
+```
+
+
+# Visuals
+
+## old vs new strike zone
+
+```{r old vs new sz, echo=FALSE}
+avg_old_top <- mean(df_2024$sz_top, na.rm = TRUE)
+avg_old_bot <- mean(df_2024$sz_bot, na.rm = TRUE)
+avg_new_top <- mean(df_2024$abs_sz_top, na.rm = TRUE)
+avg_new_bot <- mean(df_2024$abs_sz_bot, na.rm = TRUE)
+
+pitch_loc_plot <- ggplot(full_pitch_df, aes(x = plate_x, y = plate_z)) +
+  stat_density2d(
+    aes(fill = after_stat(level)),
+    geom = "polygon",
+    alpha = 0.5
+  ) +
+  scale_fill_continuous(name = "Density") +  geom_rect(
+    xmin = -8.5, xmax = 8.5,
+    ymin = avg_new_bot, ymax = avg_new_top,
+    fill = NA, color = "green",
+    inherit.aes = FALSE
+  ) + 
+  geom_rect(
+    xmin = -8.5, xmax = 8.5,
+    ymin = avg_old_bot, ymax = avg_old_top,
+    fill = NA, color = "red",
+    inherit.aes = FALSE
+  ) +
+  coord_fixed() +
+  labs(title = "The ABS zone is significantly smaller than the old strike zone", subtitle = "ABS (green) vs Old (red)", x = "Horizontal location (inches)", y = "Vertical location (inches)")
+
+pitch_loc_plot
+```
+
+## old vs new stats comparison
+
+```{r old vs new stats comparison, echo=FALSE}
+df <- full_pitch_df %>%
+  filter(plate_x >= -8.5, plate_x <= 8.5, description == "hit_into_play")
+
+# Define the old strike zone: plate_z between sz_bot and sz_top.
+old_zone_df <- df %>%
+  filter(plate_z >= sz_bot, plate_z <= sz_top)
+
+# Define the new ABS strike zone: plate_z between abs_sz_bot and abs_sz_top.
+new_zone_df <- df %>%
+  filter(plate_z >= abs_sz_bot, plate_z <= abs_sz_top)
+
+# Calculate the mean values for key statistics in each zone.
+stats_old <- old_zone_df %>%
+  summarise(
+    mean_woba = mean(estimated_woba_using_speedangle, na.rm = TRUE),
+    mean_delta_run_exp = mean(delta_run_exp, na.rm = TRUE),
+    mean_launch_speed = mean(launch_speed, na.rm = TRUE)
+  )
+
+stats_new <- new_zone_df %>%
+  summarise(
+    mean_woba = mean(estimated_woba_using_speedangle, na.rm = TRUE),
+    mean_delta_run_exp = mean(delta_run_exp, na.rm = TRUE),
+    mean_launch_speed = mean(launch_speed, na.rm = TRUE)
+  )
+
+# Combine the statistics into one data frame.
+stats_comparison <- data.frame(
+  Stat = c("Estimated wOBA", "Delta Run Exp", "Launch Speed"),
+  Old = c(stats_old$mean_woba, stats_old$mean_delta_run_exp, stats_old$mean_launch_speed),
+  New = c(stats_new$mean_woba, stats_new$mean_delta_run_exp, stats_new$mean_launch_speed)
+)
+
+# Pivot the data to long format for ggplot2.
+stats_long <- stats_comparison %>%
+  pivot_longer(cols = c("Old", "New"), names_to = "Zone", values_to = "MeanValue")
+
+# Compute t-test p-values for each statistic.
+p_val_woba <- t.test(old_zone_df$estimated_woba_using_speedangle, 
+                     new_zone_df$estimated_woba_using_speedangle)$p.value
+p_val_dre <- t.test(old_zone_df$delta_run_exp, 
+                    new_zone_df$delta_run_exp)$p.value
+p_val_launch <- t.test(old_zone_df$launch_speed, 
+                       new_zone_df$launch_speed)$p.value
+
+# Create a data frame with p-values and assign significance stars.
+pvals <- data.frame(
+  Stat = c("Estimated wOBA", "Delta Run Exp", "Launch Speed"),
+  p_value = c(p_val_woba, p_val_dre, p_val_launch)
+)
+pvals$sig_label <- ifelse(pvals$p_value < 0.001, "***",
+                    ifelse(pvals$p_value < 0.01, "**",
+                    ifelse(pvals$p_value < 0.05, "*", "ns")))
+
+# Determine a y-position for the annotations by getting the max mean value per stat.
+max_vals <- stats_long %>% group_by(Stat) %>% summarise(max_val = max(MeanValue))
+pvals <- merge(pvals, max_vals, by = "Stat")
+pvals <- pvals %>% mutate(y_position = max_val * 1.1)
+
+# Create the faceted grouped bar chart with custom fill colors and p-value annotations.
+ggplot(stats_long, aes(x = Zone, y = MeanValue, fill = Zone)) +
+  geom_col() +
+  facet_wrap(~Stat, scales = "free_y") +
+  scale_fill_manual(values = c("Old" = "red", "New" = "green")) +
+  geom_text(data = pvals, 
+            aes(x = 1.5, y = y_position, 
+                label = paste("p =", signif(p_value, 2), sig_label)),
+            inherit.aes = FALSE, size = 3) +
+  labs(title = "Between old and new zones, stat changes across MLB are not significant",
+       x = "Zone",
+       y = "Mean Value") +
+  theme_minimal()
+```
+
+## old but not new vs new
+
+```{r old but not new vs new, echo=FALSE}
+# Group 1: Old-Only (pitches in old strike zone but NOT in new ABS zone)
+old_only_df <- df %>%
+  filter(plate_z >= sz_bot, plate_z <= sz_top) %>%
+  filter(!(plate_z >= abs_sz_bot & plate_z <= abs_sz_top))
+
+# Group 2: New ABS (pitches in the new ABS strike zone)
+new_zone_df <- df %>%
+  filter(plate_z >= abs_sz_bot, plate_z <= abs_sz_top)
+
+# Calculate the mean key statistics for each group
+stats_old_only <- old_only_df %>%
+  summarise(
+    mean_woba = mean(estimated_woba_using_speedangle, na.rm = TRUE),
+    mean_delta_run_exp = mean(delta_run_exp, na.rm = TRUE),
+    mean_launch_speed = mean(launch_speed, na.rm = TRUE)
+  )
+
+stats_new <- new_zone_df %>%
+  summarise(
+    mean_woba = mean(estimated_woba_using_speedangle, na.rm = TRUE),
+    mean_delta_run_exp = mean(delta_run_exp, na.rm = TRUE),
+    mean_launch_speed = mean(launch_speed, na.rm = TRUE)
+  )
+
+# Combine the statistics into one data frame for comparison
+stats_comparison <- data.frame(
+  Stat = c("Estimated wOBA", "Delta Run Exp", "Launch Speed"),
+  Old_Only = c(stats_old_only$mean_woba, stats_old_only$mean_delta_run_exp, stats_old_only$mean_launch_speed),
+  New = c(stats_new$mean_woba, stats_new$mean_delta_run_exp, stats_new$mean_launch_speed)
+)
+
+# Pivot to long format for ggplot2
+stats_long <- stats_comparison %>%
+  pivot_longer(cols = c("Old_Only", "New"), names_to = "Group", values_to = "MeanValue")
+
+# Compute t-test p-values for each statistic between the two groups
+p_val_woba <- t.test(old_only_df$estimated_woba_using_speedangle, new_zone_df$estimated_woba_using_speedangle)$p.value
+p_val_dre <- t.test(old_only_df$delta_run_exp, new_zone_df$delta_run_exp)$p.value
+p_val_launch <- t.test(old_only_df$launch_speed, new_zone_df$launch_speed)$p.value
+
+pvals <- data.frame(
+  Stat = c("Estimated wOBA", "Delta Run Exp", "Launch Speed"),
+  p_value = c(p_val_woba, p_val_dre, p_val_launch)
+)
+pvals$sig_label <- ifelse(pvals$p_value < 0.001, "***",
+                    ifelse(pvals$p_value < 0.01, "**",
+                    ifelse(pvals$p_value < 0.05, "*", "ns")))
+
+# Determine a y-position for annotations by finding the max MeanValue for each stat
+max_vals <- stats_long %>% group_by(Stat) %>% summarise(max_val = max(MeanValue))
+pvals <- merge(pvals, max_vals, by = "Stat")
+pvals <- pvals %>% mutate(y_position = max_val * 1.1)
+
+# Create the faceted grouped bar chart with custom colors and p-value annotations
+ggplot(stats_long, aes(x = Group, y = MeanValue, fill = Group)) +
+  geom_col() +
+  facet_wrap(~Stat, scales = "free_y") +
+  scale_fill_manual(values = c("Old_Only" = "red", "New" = "green")) +
+  geom_text(data = pvals, 
+            aes(x = 1.5, y = y_position, 
+                label = paste("p =", signif(p_value, 2), sig_label)),
+            inherit.aes = FALSE, size = 3) +
+  labs(title = "Batters hit significantly better in the new zone than area of old zone being cut off",
+       x = "Group",
+       y = "Mean Value") +
+  theme_minimal()
+```
+
+## judge vs altuve
+
+```{r judge vs altuve, echo=FALSE}
+# 1. Filter data for the two batters, horizontal plate limits, and hit_into_play events.
+df <- full_pitch_df %>%
+  filter(plate_x >= -8.5, plate_x <= 8.5,
+         description == "hit_into_play",
+         batter_name %in% c("Judge, Aaron", "Altuve, José"))
+
+# 2. Create a zone classification variable:
+#    - "New" if plate_z is between abs_sz_bot and abs_sz_top,
+#    - "Old_Only" if plate_z is between sz_bot and sz_top but not in the new zone.
+df <- df %>%
+  mutate(zone_group = case_when(
+    plate_z >= abs_sz_bot & plate_z <= abs_sz_top ~ "New",
+    plate_z >= sz_bot & plate_z <= sz_top ~ "Old_Only",
+    TRUE ~ NA_character_
+  )) %>%
+  filter(!is.na(zone_group)) %>%
+  mutate(zone_group = factor(zone_group, levels = c("Old_Only", "New")),
+         batter_name = factor(batter_name, levels = c("Judge, Aaron", "Altuve, José"))
+         )
+
+# 3. Aggregate stats by batter and zone_group.
+agg_stats <- df %>%
+  group_by(batter_name, zone_group) %>%
+  summarise(
+    mean_woba = mean(estimated_woba_using_speedangle, na.rm = TRUE),
+    mean_dre = mean(delta_run_exp, na.rm = TRUE),
+    mean_launch = mean(launch_speed, na.rm = TRUE)
+  ) %>%
+  ungroup()
+
+# Pivot to wide format so we have one row per batter.
+agg_stats_wide <- agg_stats %>%
+  pivot_wider(names_from = zone_group, values_from = c(mean_woba, mean_dre, mean_launch))
+
+# 4. Compute the difference (New - Old_Only) for each stat and each batter.
+stats_diff <- agg_stats_wide %>%
+  mutate(
+    diff_woba = mean_woba_New - mean_woba_Old_Only,
+    diff_dre = mean_dre_New - mean_dre_Old_Only,
+    diff_launch = mean_launch_New - mean_launch_Old_Only
+  ) %>%
+  select(batter_name, diff_woba, diff_dre, diff_launch)
+
+# Pivot to long format for plotting.
+stats_long <- stats_diff %>%
+  pivot_longer(cols = starts_with("diff_"), names_to = "Stat", values_to = "Difference") %>%
+  mutate(Stat = case_when(
+    Stat == "diff_woba" ~ "Estimated wOBA",
+    Stat == "diff_dre" ~ "Delta Run Exp",
+    Stat == "diff_launch" ~ "Launch Speed"
+  ))
+
+# 5. Create the faceted bar chart comparing the differences (New - Old_Only) for each batter,
+#    adjusting the bar width and x-axis expansion to prevent overlapping labels.
+ggplot(stats_long, aes(x = batter_name, y = Difference, fill = batter_name)) +
+  geom_col(width = 0.6) +
+  facet_wrap(~Stat, scales = "free_y") +
+  scale_fill_manual(values = c("Judge, Aaron" = "navy", "Altuve, José" = "orange")) +
+  scale_x_discrete(expand = expansion(mult = c(0.3, 0.3))) +
+  labs(title = "Judge, a tall batter, benefits more from the new zone than Altuve, a shorter batter",
+       x = "Batter",
+       y = "Difference (New - Old)") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+## top 10 and bottom 10 players
+
+```{r top10/bot10, echo=FALSE}
+# 1. Filter the data: horizontal plate limits and "hit_into_play" events.
+df <- full_pitch_df %>%
+  filter(plate_x >= -8.5, plate_x <= 8.5,
+         description == "hit_into_play")
+
+# 2. Compute plate appearances per batter using unique game_pk and at_bat_number.
+pa_counts <- df %>%
+  group_by(batter_name) %>%
+  summarise(pa = n_distinct(paste(game_pk, at_bat_number, sep = "_"))) 
+
+# 3. Retain only batters with at least 300 plate appearances.
+df <- df %>%
+  inner_join(pa_counts, by = "batter_name") %>%
+  filter(pa >= 300)
+
+# 4. Classify each pitch as either "New" (if plate_z is between abs_sz_bot and abs_sz_top)
+#    or "Old_Only" (if plate_z is between sz_bot and sz_top but not in the new zone).
+df <- df %>%
+  mutate(zone_group = case_when(
+    plate_z >= abs_sz_bot & plate_z <= abs_sz_top ~ "New",
+    plate_z >= sz_bot  & plate_z <= sz_top  ~ "Old_Only",
+    TRUE ~ NA_character_
+  )) %>%
+  filter(!is.na(zone_group)) %>%
+  mutate(zone_group = factor(zone_group, levels = c("Old_Only", "New")))
+
+# 5. Aggregate key stats by batter (including batter_height) and zone_group.
+agg_stats <- df %>%
+  group_by(batter_name, batter_height, zone_group) %>%
+  summarise(
+    mean_woba   = mean(estimated_woba_using_speedangle, na.rm = TRUE),
+    mean_dre    = mean(delta_run_exp, na.rm = TRUE),
+    mean_launch = mean(launch_speed, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# 6. Pivot to wide format so each batter has separate columns for Old_Only and New.
+agg_stats_wide <- agg_stats %>%
+  pivot_wider(names_from = zone_group, 
+              values_from = c(mean_woba, mean_dre, mean_launch))
+
+# 7. Compute the differences (New - Old_Only) for each metric.
+agg_stats_wide <- agg_stats_wide %>%
+  mutate(
+    diff_woba   = mean_woba_New - mean_woba_Old_Only,
+    diff_dre    = mean_dre_New - mean_dre_Old_Only,
+    diff_launch = mean_launch_New - mean_launch_Old_Only
+  )
+
+# 8. Extract the top 10 and bottom 10 players for each metric.
+# Delta Run Exp
+top10_dre <- agg_stats_wide %>% 
+  arrange(desc(diff_dre)) %>% 
+  slice_head(n = 10)
+bottom10_dre <- agg_stats_wide %>% 
+  arrange(diff_dre) %>% 
+  slice_head(n = 10)
+
+# Estimated wOBA
+top10_woba <- agg_stats_wide %>% 
+  arrange(desc(diff_woba)) %>% 
+  slice_head(n = 10)
+bottom10_woba <- agg_stats_wide %>% 
+  arrange(diff_woba) %>% 
+  slice_head(n = 10)
+
+# Launch Speed
+top10_launch <- agg_stats_wide %>% 
+  arrange(desc(diff_launch)) %>% 
+  slice_head(n = 10)
+bottom10_launch <- agg_stats_wide %>% 
+  arrange(diff_launch) %>% 
+  slice_head(n = 10)
+
+# 9. For each subset, create a new column for batter label including height.
+#    Also, compute the position for the stat label.
+#    We'll use an offset equal to 5% of the maximum absolute difference in each subset.
+add_labels <- function(df, diff_col) {
+  df %>%
+    mutate(batter_label = paste(batter_name, "(", batter_height, "in)", sep = " ")) %>%
+    mutate(abs_diff = abs(!!rlang::sym(diff_col))) %>%
+    mutate(max_abs = max(abs_diff, na.rm = TRUE)) %>%
+    mutate(label_pos = ifelse(!!rlang::sym(diff_col) > 0,
+                              !!rlang::sym(diff_col) - 0.05 * max_abs,
+                              !!rlang::sym(diff_col) + 0.05 * max_abs),
+           hjust = ifelse(!!rlang::sym(diff_col) > 0, 1, 0))
+}
+
+# Apply the helper function to each subset.
+top10_dre <- add_labels(top10_dre, "diff_dre")
+bottom10_dre <- add_labels(bottom10_dre, "diff_dre")
+top10_woba <- add_labels(top10_woba, "diff_woba")
+bottom10_woba <- add_labels(bottom10_woba, "diff_woba")
+top10_launch <- add_labels(top10_launch, "diff_launch")
+bottom10_launch <- add_labels(bottom10_launch, "diff_launch")
+
+# 10. Create the six separate bar graphs.
+
+# Graph 1: Top 10 Players by Delta Run Exp Difference
+plot_top_dre <- ggplot(top10_dre, aes(x = reorder(batter_label, diff_dre), y = diff_dre)) +
+  geom_col(fill = "forestgreen", width = 0.6) +
+  geom_text(aes(label = sprintf("%.2f", diff_dre), y = label_pos, hjust = hjust), 
+            color = "white", size = 3) +
+  coord_flip() +
+  labs(title = "Top 10 Players by Delta Run Exp Difference",
+       x = "Batter (Height)", y = "Difference (New - Old)") +
+  theme_minimal()
+
+# Graph 2: Bottom 10 Players by Delta Run Exp Difference
+plot_bottom_dre <- ggplot(bottom10_dre, aes(x = reorder(batter_label, diff_dre), y = diff_dre)) +
+  geom_col(fill = "firebrick", width = 0.6) +
+  geom_text(aes(label = sprintf("%.2f", diff_dre), y = label_pos, hjust = hjust), 
+            color = "white", size = 3) +
+  coord_flip() +
+  labs(title = "Bottom 10 Players by Delta Run Exp Difference",
+       x = "Batter (Height)", y = "Difference (New - Old)") +
+  theme_minimal()
+
+# Graph 3: Top 10 Players by Estimated wOBA Difference
+plot_top_woba <- ggplot(top10_woba, aes(x = reorder(batter_label, diff_woba), y = diff_woba)) +
+  geom_col(fill = "forestgreen", width = 0.6) +
+  geom_text(aes(label = sprintf("%.2f", diff_woba), y = label_pos, hjust = hjust), 
+            color = "white", size = 3) +
+  coord_flip() +
+  labs(title = "Top 10 Players by Estimated wOBA Difference",
+       x = "Batter (Height)", y = "Difference (New - Old)") +
+  theme_minimal()
+
+# Graph 4: Bottom 10 Players by Estimated wOBA Difference
+plot_bottom_woba <- ggplot(bottom10_woba, aes(x = reorder(batter_label, diff_woba), y = diff_woba)) +
+  geom_col(fill = "firebrick", width = 0.6) +
+  geom_text(aes(label = sprintf("%.2f", diff_woba), y = label_pos, hjust = hjust), 
+            color = "white", size = 3) +
+  coord_flip() +
+  labs(title = "Bottom 10 Players by Estimated wOBA Difference",
+       x = "Batter (Height)", y = "Difference (New - Old)") +
+  theme_minimal()
+
+# Graph 5: Top 10 Players by Launch Speed Difference
+plot_top_launch <- ggplot(top10_launch, aes(x = reorder(batter_label, diff_launch), y = diff_launch)) +
+  geom_col(fill = "forestgreen", width = 0.6) +
+  geom_text(aes(label = sprintf("%.2f", diff_launch), y = label_pos, hjust = hjust), 
+            color = "white", size = 3) +
+  coord_flip() +
+  labs(title = "Top 10 Players by Launch Speed Difference",
+       x = "Batter (Height)", y = "Difference (New - Old)") +
+  theme_minimal()
+
+# Graph 6: Bottom 10 Players by Launch Speed Difference
+plot_bottom_launch <- ggplot(bottom10_launch, aes(x = reorder(batter_label, diff_launch), y = diff_launch)) +
+  geom_col(fill = "firebrick", width = 0.6) +
+  geom_text(aes(label = sprintf("%.2f", diff_launch), y = label_pos, hjust = hjust), 
+            color = "white", size = 3) +
+  coord_flip() +
+  labs(title = "Bottom 10 Players by Launch Speed Difference",
+       x = "Batter (Height)", y = "Difference (New - Old)") +
+  theme_minimal()
+
+# Display the graphs
+plot_top_dre
+plot_bottom_dre
+plot_top_woba
+plot_bottom_woba
+plot_top_launch
+plot_bottom_launch
+```
+
+## top 10 and bottom 10 teams
+
+```{r team charts, echo=FALSE}
+# 1. Filter the data: only include pitches with plate_x between -8.5 and 8.5 and description "hit_into_play".
+df_team <- full_pitch_df %>%
+  filter(plate_x >= -8.5, plate_x <= 8.5,
+         description == "hit_into_play")
+
+# 2. Compute team-level plate appearances using unique combinations of game_pk and at_bat_number.
+pa_counts_team <- df_team %>%
+  group_by(batting_team) %>%
+  summarise(pa = n_distinct(paste(game_pk, at_bat_number, sep = "_")))
+
+# 3. Retain only teams with at least 300 plate appearances.
+df_team <- df_team %>%
+  inner_join(pa_counts_team, by = "batting_team") %>%
+  filter(pa >= 300)
+
+# 4. Classify each pitch as either "New" (if plate_z is between abs_sz_bot and abs_sz_top)
+#    or "Old_Only" (if plate_z is between sz_bot and sz_top but not in the new zone).
+df_team <- df_team %>%
+  mutate(zone_group = case_when(
+    plate_z >= abs_sz_bot & plate_z <= abs_sz_top ~ "New",
+    plate_z >= sz_bot  & plate_z <= sz_top ~ "Old_Only",
+    TRUE ~ NA_character_
+  )) %>%
+  filter(!is.na(zone_group)) %>%
+  mutate(zone_group = factor(zone_group, levels = c("Old_Only", "New")))
+
+# 5. Aggregate key stats by team and zone_group.
+agg_stats_team <- df_team %>%
+  group_by(batting_team, zone_group) %>%
+  summarise(
+    mean_woba   = mean(estimated_woba_using_speedangle, na.rm = TRUE),
+    mean_dre    = mean(delta_run_exp, na.rm = TRUE),
+    mean_launch = mean(launch_speed, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# 6. Pivot the data to wide format so each team has separate columns for Old_Only and New.
+agg_stats_team_wide <- agg_stats_team %>%
+  pivot_wider(names_from = zone_group, 
+              values_from = c(mean_woba, mean_dre, mean_launch))
+
+# 7. Compute the differences (New - Old_Only) for each metric.
+agg_stats_team_wide <- agg_stats_team_wide %>%
+  mutate(
+    diff_woba   = mean_woba_New - mean_woba_Old_Only,
+    diff_dre    = mean_dre_New - mean_dre_Old_Only,
+    diff_launch = mean_launch_New - mean_launch_Old_Only
+  )
+
+# 8. Create a label column (here, simply the team name).
+agg_stats_team_wide <- agg_stats_team_wide %>%
+  mutate(team_label = batting_team)
+
+# 9. Extract the top 10 and bottom 10 teams for each metric.
+top10_dre_team <- agg_stats_team_wide %>% arrange(desc(diff_dre)) %>% slice_head(n = 10)
+bottom10_dre_team <- agg_stats_team_wide %>% arrange(diff_dre) %>% slice_head(n = 10)
+
+top10_woba_team <- agg_stats_team_wide %>% arrange(desc(diff_woba)) %>% slice_head(n = 10)
+bottom10_woba_team <- agg_stats_team_wide %>% arrange(diff_woba) %>% slice_head(n = 10)
+
+top10_launch_team <- agg_stats_team_wide %>% arrange(desc(diff_launch)) %>% slice_head(n = 10)
+bottom10_launch_team <- agg_stats_team_wide %>% arrange(diff_launch) %>% slice_head(n = 10)
+
+# 10. Define a helper function to compute a label position for the numeric difference.
+add_labels_team <- function(df, diff_col) {
+  df %>%
+    mutate(abs_diff = abs(!!rlang::sym(diff_col))) %>%
+    mutate(max_abs = max(abs_diff, na.rm = TRUE)) %>%
+    mutate(label_pos = ifelse(!!rlang::sym(diff_col) > 0,
+                              !!rlang::sym(diff_col) - 0.05 * max_abs,
+                              !!rlang::sym(diff_col) + 0.05 * max_abs),
+           hjust = ifelse(!!rlang::sym(diff_col) > 0, 1, 0))
+}
+
+# Apply the helper function to each subset.
+top10_dre_team <- add_labels_team(top10_dre_team, "diff_dre")
+bottom10_dre_team <- add_labels_team(bottom10_dre_team, "diff_dre")
+
+top10_woba_team <- add_labels_team(top10_woba_team, "diff_woba")
+bottom10_woba_team <- add_labels_team(bottom10_woba_team, "diff_woba")
+
+top10_launch_team <- add_labels_team(top10_launch_team, "diff_launch")
+bottom10_launch_team <- add_labels_team(bottom10_launch_team, "diff_launch")
+
+# 11. Create six separate graphs.
+
+# Graph 1: Top 10 Teams by Delta Run Exp Difference
+plot_top_dre_team <- ggplot(top10_dre_team, aes(x = reorder(team_label, diff_dre), y = diff_dre)) +
+  geom_col(fill = "forestgreen", width = 0.6) +
+  geom_text(aes(label = sprintf("%.2f", diff_dre), y = label_pos, hjust = hjust),
+            color = "white", size = 3) +
+  coord_flip() +
+  labs(title = "Top 10 Teams by Delta Run Exp Difference",
+       x = "Team", y = "Difference (New - Old)") +
+  theme_minimal()
+
+# Graph 2: Bottom 10 Teams by Delta Run Exp Difference
+plot_bottom_dre_team <- ggplot(bottom10_dre_team, aes(x = reorder(team_label, diff_dre), y = diff_dre)) +
+  geom_col(fill = "firebrick", width = 0.6) +
+  geom_text(aes(label = sprintf("%.2f", diff_dre), y = label_pos, hjust = hjust),
+            color = "white", size = 3) +
+  coord_flip() +
+  labs(title = "Bottom 10 Teams by Delta Run Exp Difference",
+       x = "Team", y = "Difference (New - Old)") +
+  theme_minimal()
+
+# Graph 3: Top 10 Teams by Estimated wOBA Difference
+plot_top_woba_team <- ggplot(top10_woba_team, aes(x = reorder(team_label, diff_woba), y = diff_woba)) +
+  geom_col(fill = "forestgreen", width = 0.6) +
+  geom_text(aes(label = sprintf("%.2f", diff_woba), y = label_pos, hjust = hjust),
+            color = "white", size = 3) +
+  coord_flip() +
+  labs(title = "Top 10 Teams by Estimated wOBA Difference",
+       x = "Team", y = "Difference (New - Old)") +
+  theme_minimal()
+
+# Graph 4: Bottom 10 Teams by Estimated wOBA Difference
+plot_bottom_woba_team <- ggplot(bottom10_woba_team, aes(x = reorder(team_label, diff_woba), y = diff_woba)) +
+  geom_col(fill = "firebrick", width = 0.6) +
+  geom_text(aes(label = sprintf("%.2f", diff_woba), y = label_pos, hjust = hjust),
+            color = "white", size = 3) +
+  coord_flip() +
+  labs(title = "Bottom 10 Teams by Estimated wOBA Difference",
+       x = "Team", y = "Difference (New - Old)") +
+  theme_minimal()
+
+# Graph 5: Top 10 Teams by Launch Speed Difference
+plot_top_launch_team <- ggplot(top10_launch_team, aes(x = reorder(team_label, diff_launch), y = diff_launch)) +
+  geom_col(fill = "forestgreen", width = 0.6) +
+  geom_text(aes(label = sprintf("%.2f", diff_launch), y = label_pos, hjust = hjust),
+            color = "white", size = 3) +
+  coord_flip() +
+  labs(title = "Top 10 Teams by Launch Speed Difference",
+       x = "Team", y = "Difference (New - Old)") +
+  theme_minimal()
+
+# Graph 6: Bottom 10 Teams by Launch Speed Difference
+plot_bottom_launch_team <- ggplot(bottom10_launch_team, aes(x = reorder(team_label, diff_launch), y = diff_launch)) +
+  geom_col(fill = "firebrick", width = 0.6) +
+  geom_text(aes(label = sprintf("%.2f", diff_launch), y = label_pos, hjust = hjust),
+            color = "white", size = 3) +
+  coord_flip() +
+  labs(title = "Bottom 10 Teams by Launch Speed Difference",
+       x = "Team", y = "Difference (New - Old)") +
+  theme_minimal()
+
+# Display the graphs
+plot_top_dre_team
+plot_bottom_dre_team
+plot_top_woba_team
+plot_bottom_woba_team
+plot_top_launch_team
+plot_bottom_launch_team
+```

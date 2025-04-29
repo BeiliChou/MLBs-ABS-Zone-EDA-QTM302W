@@ -191,7 +191,7 @@ Sys.time() - t
 
 ### Example outputs with the full data set.
 
-Taking a look at pitch location data, which is broken down into x (horizontal) and z (vertical) coordinates from the catcher's POV:
+Taking a look at pitch location data, which is broken down into x (horizontal) and z (vertical) coordinates from the catcher's POV, with a 2d density heat map. A 2D density heat map aggregates tens of thousands of pitch coordinates into smooth contours that reveal where pitchers most frequently target without suffering from over-plotting. By layering strike-zone boundaries on top, you can immediately compare pitch concentration inside and outside the zone. The color gradient encodes relative volume, making it easy to summarize location and frequency and to compare different zones or pitch types in a single intuitive graphic:
 
 ```{r pitch loc descriptives, warning=FALSE}
 # ──────────────────────────────────────────────────────────────────────────────

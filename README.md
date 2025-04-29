@@ -49,18 +49,18 @@ This repository explores how the proposed Automated Ball-Strike (ABS) strike zon
 
 ## 📂 File Structure
 
-abs-zone-eda/
-├── data/
-│   ├── biofile_df.csv
-│   └── full_pitch_df.csv
-├── EDA_Notebook.Rmd
-├── EDA_Notebook.html
-├── Presentation_Visuals.Rmd
-├── references.bib
-├── QTM302W.Rproj
-├── renv/
-├── renv.lock
-└── README.md
+abs-zone-eda/\
+├── data/\
+│   ├── biofile_df.csv\
+│   └── full_pitch_df.csv\
+├── EDA_Notebook.Rmd\
+├── EDA_Notebook.html\
+├── Presentation_Visuals.Rmd\
+├── references.bib\
+├── QTM302W.Rproj\
+├── renv/\
+├── renv.lock\
+└── README.md\
 
 ## 📝 Citation
 If you use this work, please cite:

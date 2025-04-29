@@ -8,20 +8,26 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
+## Overview
+
+This notebook, **Presentation_Visuals**, is designed to produce the key figures and tables for our upcoming research presentation on how the proposed Automated Ball-Strike (ABS) strike zone would have altered MLB hitters’ outcomes in 2024.  
+
+We begin by loading and preparing the pitch-by-pitch Statcast data, enriched with batter heights, and then:
+
+1. **Visualize pitch distributions** under the current and ABS zones.  
+2. **Compare aggregate hitting metrics** (e.g. wOBA, run expectancy, launch speed) between the old and new strike zones.  
+3. **Isolate “limbo” pitches**—those in the old zone but excluded by ABS—and predict their impact on performance.  
+4. **Highlight individual players** (Aaron Judge vs. José Altuve) to illustrate extremes of height-driven effects.  
+5. **Rank top and bottom performers** (both players and teams) by the change in key metrics under ABS.  
+
+Each section is self-contained: brief narrative, the data filtering or transformation step, and a ready-to-use ggplot or table.  The output is optimized for slide export, with clear titles and annotations.  
+
 ## Conventions
-
-with_underscores
-
-Variables: nouns
-
-Functions: verbs
-
-Automated ball-strike challenge system -\> ABS
-
-Major League Baseball -\> MLB
-
-Weighted On-Base Average -\> wOBA
-
+**Variables** use `snake_case`.
+**Functions** are verbs, e.g. `calculate_metrics()`.
+**ABS** = Automated Ball-Strike challenge system.
+**MLB** = Major League Baseball.
+**wOBA** = Weighted On-Base Average.
 ## Packages & Functions
 
 Uncommon Packages: baseballr @baseballr

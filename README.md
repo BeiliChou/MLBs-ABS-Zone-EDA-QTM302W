@@ -60,7 +60,7 @@ abs-zone-eda/\
 ├── QTM302W.Rproj\
 ├── renv/\
 ├── renv.lock\
-└── README.md\
+└── README.md
 
 ## 📝 Citation
 If you use this work, please cite:
